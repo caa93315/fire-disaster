@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全球即時火災地圖 | 全球即时火灾地图 | Global Fire Map</title>
+    <!-- 稳定的CDN资源链接 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- i18next 多语言核心库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/i18next/23.7.6/i18next.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/i18next-browser-languagedetector/7.2.0/i18nextBrowserLanguageDetector.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* 防止页面滚动 */
+        }
+        /* 头部导航 */
+        header {
+            background: #d32f2f;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .lang-switcher {
+            display: flex;
+            gap: 0.8rem;
+        }
+        .lang-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 0.5rem 0.8rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-size: 0.9rem;
+        }
+        .lang-btn:hover, .lang-btn.active {
+            background: rgba(255,255,255,0.4);
+        }
+        /* 地图容器 */
+        #map {
+            flex: 1;
+            z-index: 1;
+        }
+        /* 控制面板 */
+        .control-panel {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 2;
+            width: 300px;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+        .panel-title {
+            font-weight: bold;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+        .fire-list {
+            max-height: calc(80vh - 120px);
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        /* 滚动条样式优化 */
+        .fire-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .fire-list::-webkit-scrollbar-thumb {
+            background: #ddd;
+            border-radius: 3px;
+        }
+        .fire-item {
+            padding: 0.8rem;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .fire-item:hover {
+            background: #f5f5f5;
+        }
+        .fire-item h4 {
+            margin-bottom: 0.3rem;
+            color: #d32f2f;
+            font-size: 1rem;
+        }
+        .fire-item p {
+            font-size: 0.9rem;
+            color: #666;
+            margin: 0.2rem 0;
+        }
+        .update-time {
+            font-size: 0.8rem;
+            color: #999;
+            margin-top: 1rem;
+            text-align: center;
+            padding-top: 0.5rem;
+            border-top: 1px solid #eee;
+        }
+        /* 自定义火灾图标 */
+        .fire-icon {
+            color: #d32f2f;
+            font-size: 24px;
+            text-shadow: 0 0 5px rgba(211,47,47,0.5);
+            transform: translateY(-5px); /* 图标居中调整 */
+        }
+        /* 加载提示 */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 999;
+            background: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.15);
+        }
+        /* 响应式适配 */
+        @media (max-width: 768px) {
+            .control-panel {
+                width: calc(100% - 40px);
+                top: auto;
+                bottom: 20px;
+                max-height: 40vh;
+            }
+            .fire-list {
+                max-height: calc(40vh - 100px);
+            }
+            header {
+                padding: 0.8rem 1rem;
+            }
+            .logo {
+                font-size: 1.2rem;
+            }
+            .lang-btn {
+                padding: 0.4rem 0.6rem;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载提示 -->
+    <div class="loading" id="loading" data-i18n="loading">加载中...</div>
+
+    <header>
+        <div class="logo" data-i18n="title"></div>
+        <div class="lang-switcher">
+            <button class="lang-btn active" data-lang="zh-Hans">简体</button>
+            <button class="lang-btn" data-lang="zh-Hant">繁體</button>
+            <button class="lang-btn" data-lang="en">English</button>
+            <button class="lang-btn" data-lang="ja">日本語</button>
+            <button class="lang-btn" data-lang="yue">粵語</button>
+        </div>
+    </header>
+    
+    <div class="control-panel">
+        <div class="panel-title" data-i18n="panelTitle"></div>
+        <div class="fire-list" id="fireList"></div>
+        <div class="update-time" id="updateTime" data-i18n="updateTime"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Leaflet核心库（放在body末尾确保加载顺序） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script>
+        // 错误处理：捕获资源加载失败
+        window.addEventListener('error', (e) => {
+            console.error('资源加载失败:', e.target.src);
+            alert('部分资源加载失败，请检查网络连接后刷新页面');
+        });
+
+        // 1. 初始化多语言配置
+        i18next
+            .use(i18nextBrowserLanguageDetector)
+            .init({
+                fallbackLng: 'zh-Hans',
+                debug: false, // 关闭调试模式
+                resources: {
+                    // 简体中文
+                    'zh-Hans': {
+                        translation: {
+                            title: '全球即时火灾地图',
+                            panelTitle: '最新火灾事件',
+                            updateTime: '最后更新: {{time}}',
+                            fireLevel: '火灾等级',
+                            location: '位置',
+                            time: '发生时间',
+                            levelHigh: '高',
+                            levelMedium: '中',
+                            levelLow: '低',
+                            loading: '加载中...'
+                        }
+                    },
+                    // 繁体中文
+                    'zh-Hant': {
+                        translation: {
+                            title: '全球即時火災地圖',
+                            panelTitle: '最新火災事件',
+                            updateTime: '最後更新: {{time}}',
+                            fireLevel: '火災等級',
+                            location: '位置',
+                            time: '發生時間',
+                            levelHigh: '高',
+                            levelMedium: '中',
+                            levelLow: '低',
+                            loading: '加載中...'
+                        }
+                    },
+                    // 英文
+                    'en': {
+                        translation: {
+                            title: 'Global Real-time Fire Map',
+                            panelTitle: 'Latest Fire Incidents',
+                            updateTime: 'Last Updated: {{time}}',
+                            fireLevel: 'Fire Level',
+                            location: 'Location',
+                            time: 'Occurrence Time',
+                            levelHigh: 'High',
+                            levelMedium: 'Medium',
+                            levelLow: 'Low',
+                            loading: 'Loading...'
+                        }
+                    },
+                    // 日文
+                    'ja': {
+                        translation: {
+                            title: 'グローバルリアルタイム火災マップ',
+                            panelTitle: '最新の火災インシデント',
+                            updateTime: '最終更新: {{time}}',
+                            fireLevel: '火災レベル',
+                            location: '場所',
+                            time: '発生時間',
+                            levelHigh: '高',
+                            levelMedium: '中',
+                            levelLow: '低',
+                            loading: '読み込み中...'
+                        }
+                    },
+                    // 粤语（粤拼+中文）
+                    'yue': {
+                        translation: {
+                            title: '全球即時火災地圖',
+                            panelTitle: '最新火災事件',
+                            updateTime: '最後更新: {{time}}',
+                            fireLevel: '火災等級',
+                            location: '位置',
+                            time: '發生時間',
+                            levelHigh: '高 (gou1)',
+                            levelMedium: '中 (zung1)',
+                            levelLow: '低 (dai1)',
+                            loading: '加載中...'
+                        }
+                    }
+                }
+            }, (err, t) => {
+                if (err) {
+                    console.error('多语言初始化失败:', err);
+                    alert('语言加载失败，请刷新页面');
+                    return;
+                }
+                // 初始渲染翻译文本
+                updateContent();
+            });
+
+        // 2. 语言切换事件
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // 切换激活状态
+                document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // 切换语言
+                const lang = btn.getAttribute('data-lang');
+                i18next.changeLanguage(lang, (err, t) => {
+                    if (err) return console.error('切换语言失败:', err);
+                    updateContent();
+                    // 刷新标记弹窗语言
+                    updateMarkerPopups();
+                });
+            });
+        });
+
+        // 3. 更新页面翻译内容
+        function updateContent() {
+            // 替换所有带data-i18n属性的元素
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (key === 'updateTime') {
+                    // 处理带变量的翻译
+                    el.textContent = i18next.t(key, { time: getCurrentTime() });
+                } else {
+                    el.textContent = i18next.t(key);
+                }
+            });
+            
+            // 重新渲染火灾列表
+            if (typeof renderFireList === 'function') {
+                renderFireList();
+            }
+        }
+
+        // 4. 获取当前时间（格式化）
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toLocaleString(i18next.language, { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit', 
+                hour: '2-digit', 
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // 5. 模拟火灾数据（实际项目中替换为真实API）
+        const fireData = [
+            { id: 1, lat: 35.6895, lng: 139.6917, level: 'high', time: '2026-01-04 10:30:25', 
+              translations: {
+                  'zh-Hans': { location: '日本东京' },
+                  'zh-Hant': { location: '日本東京' },
+                  'en': { location: 'Tokyo, Japan' },
+                  'ja': { location: '日本東京都' },
+                  'yue': { location: '日本東京' }
+              }
+            },
+            { id: 2, lat: 39.9042, lng: 116.4074, level: 'medium', time: '2026-01-04 09:15:40',
+              translations: {
+                  'zh-Hans': { location: '中国北京' },
+                  'zh-Hant': { location: '中國北京' },
+                  'en': { location: 'Beijing, China' },
+                  'ja': { location: '中国北京市' },
+                  'yue': { location: '中國北京' }
+              }
+            },
+            { id: 3, lat: 22.3193, lng: 114.1694, level: 'low', time: '2026-01-04 08:45:10',
+              translations: {
+                  'zh-Hans': { location: '中国香港' },
+                  'zh-Hant': { location: '中國香港' },
+                  'en': { location: 'Hong Kong, China' },
+                  'ja': { location: '中国香港' },
+                  'yue': { location: '中國香港' }
+              }
+            },
+            { id: 4, lat: 25.0330, lng: 121.5654, level: 'high', time: '2026-01-04 11:20:35',
+              translations: {
+                  'zh-Hans': { location: '中国台北' },
+                  'zh-Hant': { location: '中國台北' },
+                  'en': { location: 'Taipei, China' },
+                  'ja': { location: '中国台北' },
+                  'yue': { location: '中國台北' }
+              }
+            },
+            { id: 5, lat: 40.7128, lng: -74.0060, level: 'medium', time: '2026-01-04 07:10:50',
+              translations: {
+                  'zh-Hans': { location: '美国纽约' },
+                  'zh-Hant': { location: '美國紐約' },
+                  'en': { location: 'New York, USA' },
+                  'ja': { location: 'アメリカニューヨーク' },
+                  'yue': { location: '美國紐約' }
+              }
+            }
+        ];
+
+        // 6. 初始化地图（确保DOM加载完成）
+        let map;
+        window.addEventListener('load', () => {
+            try {
+                // 初始化地图
+                map = L.map('map').setView([20, 0], 2); // 初始视角：全球
+                
+                // 添加地图底图
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19
+                }).addTo(map);
+
+                // 自定义火灾图标
+                const fireIcon = L.divIcon({
+                    html: '<i class="fas fa-fire fire-icon"></i>',
+                    className: 'custom-fire-icon',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                });
+
+                // 7. 添加火灾标记到地图
+                fireData.forEach(fire => {
+                    const marker = L.marker([fire.lat, fire.lng], { icon: fireIcon }).addTo(map);
+                    
+                    // 初始化标记弹窗
+                    updateMarkerPopup(fire, marker);
+                    
+                    // 保存标记引用
+                    fire.marker = marker;
+                });
+
+                // 8. 渲染火灾列表
+                renderFireList();
+                
+                // 隐藏加载提示
+                document.getElementById('loading').style.display = 'none';
+                
+            } catch (error) {
+                console.error('地图初始化失败:', error);
+                alert('地图加载失败，请检查网络或刷新页面');
+                document.getElementById('loading').textContent = '加载失败，请刷新';
+            }
+        });
+
+        // 更新单个标记弹窗
+        function updateMarkerPopup(fire, marker) {
+            marker.bindPopup(`
+                <h3 style="margin:0 0 8px 0;color:#d32f2f;">${fire.translations[i18next.language].location}</h3>
+                <p style="margin:4px 0;"><strong>${i18next.t('fireLevel')}:</strong> ${i18next.t(`level${fire.level.charAt(0).toUpperCase() + fire.level.slice(1)}`)}</p>
+                <p style="margin:4px 0;"><strong>${i18next.t('time')}:</strong> ${fire.time}</p>
+            `);
+        }
+
+        // 批量更新所有标记弹窗语言
+        function updateMarkerPopups() {
+            fireData.forEach(fire => {
+                if (fire.marker) {
+                    updateMarkerPopup(fire, fire.marker);
+                }
+            });
+        }
+
+        // 9. 渲染火灾列表
+        function renderFireList() {
+            const fireList = document.getElementById('fireList');
+            if (!fireList) return;
+            
+            fireList.innerHTML = '';
+            
+            fireData.forEach(fire => {
+                const item = document.createElement('div');
+                item.className = 'fire-item';
+                item.innerHTML = `
+                    <h4>${fire.translations[i18next.language].location}</h4>
+                    <p><strong>${i18next.t('fireLevel')}:</strong> ${i18next.t(`level${fire.level.charAt(0).toUpperCase() + fire.level.slice(1)}`)}</p>
+                    <p><strong>${i18next.t('time')}:</strong> ${fire.time}</p>
+                `;
+                
+                // 点击列表项定位到对应标记
+                item.addEventListener('click', () => {
+                    map.setView([fire.lat, fire.lng], 10);
+                    fire.marker.openPopup();
+                });
+                
+                fireList.appendChild(item);
+            });
+            
+            // 更新最后更新时间
+            document.getElementById('updateTime').textContent = i18next.t('updateTime', { time: getCurrentTime() });
+        }
+
+        // 10. 模拟实时更新（每10秒更新一次时间）
+        setInterval(() => {
+            document.getElementById('updateTime').textContent = i18next.t('updateTime', { time: getCurrentTime() });
+        }, 10000);
+    </script>
+</body>
+</html>
